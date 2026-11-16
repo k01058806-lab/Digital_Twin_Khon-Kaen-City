@@ -1,0 +1,33 @@
+{
+ "bounds_WSEN": [
+  102.7358703613,
+  16.3479690552,
+  102.92319404130001,
+  16.5286090552
+ ],
+ "corners_for_maplibre_image_source": [
+  [
+   102.7358703613,
+   16.5286090552
+  ],
+  [
+   102.92319404130001,
+   16.5286090552
+  ],
+  [
+   102.92319404130001,
+   16.3479690552
+  ],
+  [
+   102.7358703613,
+   16.3479690552
+  ]
+ ],
+ "frames": [
+  "flood_00029.png",
+  "flood_00030.png",
+  "flood_00031.png",
+  "flood_00032.png"
+ ],
+ "note": "PNGs resampled to Web Mercator rows; depth colour ramp in metres"
+}
