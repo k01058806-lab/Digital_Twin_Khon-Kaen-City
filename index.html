@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flood Animation 3D</title>
+<style>
+  :root{--bg:rgba(14,22,36,.88);--fg:#e8eef7;--mute:#9fb0c8;--acc:#4fa3ff;--line:rgba(255,255,255,.12)}
+  html,body{margin:0;height:100%;background:#0b1220;color:var(--fg);font:14px/1.45 system-ui,"Noto Sans Thai",sans-serif}
+  #map{position:absolute;inset:0}
+  .panel{position:absolute;z-index:10;background:var(--bg);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  #ctrl{left:12px;bottom:12px;right:12px;max-width:760px;margin:0 auto}
+  #info{top:12px;left:12px;min-width:210px}
+  #info h1{font-size:15px;margin:0 0 6px}
+  #info .big{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .row+.row{margin-top:10px}
+  button{background:#1d2b44;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 11px;font:inherit;cursor:pointer}
+  button:hover{border-color:var(--acc)}
+  button.on{background:var(--acc);color:#04111f;border-color:var(--acc)}
+  #play{width:44px;font-size:16px}
+  input[type=range]{accent-color:var(--acc)}
+  #time{flex:1;min-width:160px}
+  label{color:var(--mute);display:flex;align-items:center;gap:6px}
+  .ticks{display:flex;justify-content:space-between;color:var(--mute);font-size:12px;margin:0 2px;flex:1}
+  .legend{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:12px;margin-top:8px}
+  .bar{height:10px;width:150px;border-radius:5px;background:linear-gradient(90deg,rgba(170,225,250,.45),#6ebef0,#3282d2,#1450af,#0a2878,#051446)}
+  #keybox{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:rgba(5,10,20,.7)}
+  #keybox .panel{position:static;max-width:420px}
+  #keybox input{width:100%;box-sizing:border-box;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0e1828;color:var(--fg);margin:8px 0}
+  #msg{color:#ffcf6b;font-size:12px;margin-top:6px}
+  @media (max-width:600px){#info{right:12px}#ctrl .grp{width:100%}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="info" class="panel">
+  <h1>แผนที่น้ำท่วม · <span id="fname">–</span></h1>
+  <div class="row" style="gap:18px">
+    <div><div style="color:var(--mute);font-size:12px">พื้นที่น้ำท่วม (&gt;5 ซม.)</div><div class="big" id="wet">–</div></div>
+    <div><div style="color:var(--mute);font-size:12px">ลึกสุด</div><div class="big" id="mx">–</div></div>
+  </div>
+  <div class="legend">0 <span class="bar"></span> 3+ ม.</div>
+  <div id="msg"></div>
+</div>
+
+<div id="ctrl" class="panel">
+  <div class="row">
+    <button id="play" title="เล่น/หยุด">▶</button>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:160px">
+      <input id="time" type="range" min="0" max="0" step="1" value="0">
+      <div class="ticks" id="ticks"></div>
+    </div>
+    <label>ความเร็ว <input id="speed" type="range" min="300" max="3000" step="100" value="1200" style="width:80px;direction:rtl"></label>
+  </div>
+  <div class="row">
+    <span class="grp row" style="gap:6px">
+      <button data-mode="flat">ภาพแบน</button>
+      <button data-mode="cols" class="on">แท่ง 3D</button>
+      <button data-mode="both">ทั้งสอง</button>
+      <button data-mode="vec">Vector</button>
+    </span>
+    <label>ขยายความสูง <input id="exag" type="range" min="5" max="150" value="40" style="width:90px"> <span id="exagv">40×</span></label>
+    <label>ทึบ <input id="opa" type="range" min="10" max="100" value="85" style="width:70px"></label>
+    <label title="เกลี่ยภาพแบนให้ขอบเรียบ (bilinear บน GPU)"><input id="smooth" type="checkbox" checked> เกลี่ยภาพ</label>
+    <label title="ยกระดับ polygon ตามความลึก"><input id="vex" type="checkbox" checked> Vector นูน</label>
+    <button id="rot" title="หมุนกล้องรอบพื้นที่">⟳ หมุน</button>
+    <button id="home" title="กลับมุมมองเริ่มต้น">⌂</button>
+  </div>
+</div>
+
+<div id="keybox"><div class="panel">
+  <b>ใส่ Longdo Map API key</b>
+  <div style="color:var(--mute);font-size:13px;margin-top:4px">ขอ key ได้ที่ map.longdo.com/api · key จะจำไว้ในเบราว์เซอร์นี้ หรือใส่ใน URL เป็น <code>?key=...</code></div>
+  <input id="keyin" placeholder="API key">
+  <button id="keygo" class="on">เปิดแผนที่</button>
+</div></div>
+
+<script src="data.js"></script>
+<script>
+(function(){
+const D = window.FLOOD_DATA;
+const [W,S,E,N] = D.bounds, CX=(W+E)/2, CY=(S+N)/2;
+const NF = D.frames.length, NC = D.cells.pos.length/2;
+const $ = id => document.getElementById(id);
+const msg = t => $('msg').textContent = t || '';
+
+/* ---------- API key ---------- */
+const store = { get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
+let key = new URLSearchParams(location.search).get('key') || store.get('longdoKey');
+if (!key) { $('keybox').style.display='flex';
+  $('keygo').onclick = () => { key=$('keyin').value.trim(); if(!key) return; store.set('longdoKey',key); $('keybox').style.display='none'; loadSdk(); };
+} else loadSdk();
+
+function loadSdk(){
+  const s=document.createElement('script');
+  s.src='https://api.longdo.com/map3/?key='+encodeURIComponent(key);
+  s.onload=init; s.onerror=()=>msg('โหลด Longdo Map SDK ไม่สำเร็จ (ตรวจ key / อินเทอร์เน็ต)');
+  document.head.appendChild(s);
+}
+
+/* ---------- state ---------- */
+let map, R, frame=0, playing=false, timer=null, mode='cols', exag=40, opa=.85, rotating=false;
+let smooth=true, vecOn=true, vecLoaded=false, vecLoading=false;
+let deckMode=null, colLayer=null, overlay=null, front='A';
+
+/* ---------- colour ramp for columns ---------- */
+const stops=[[0,[170,225,250]],[.15,[110,190,240]],[.5,[50,130,210]],[1,[20,80,175]],[2,[10,40,120]],[3.5,[5,20,70]]];
+function col(d){ if(d<=0.05) return [0,0,0,0];
+  for(let i=1;i<stops.length;i++) if(d<=stops[i][0]||i==stops.length-1){
+    const [a,ca]=stops[i-1],[b,cb]=stops[i],t=Math.min(1,(d-a)/(b-a));
+    return [0,1,2].map(j=>Math.round(ca[j]+(cb[j]-ca[j])*t)).concat(235); } }
+const pos = new Float64Array(D.cells.pos);
+
+function init(){
+  map = new longdo.Map({ placeholder:$('map'), location:{lon:CX,lat:CY}, zoom:12.6, pitch:60 });
+  waitFor(()=>map.Renderer && map.Renderer.isStyleLoaded && map.Renderer.isStyleLoaded(), ()=>{
+    R = map.Renderer;
+    home(false);
+    addRaster();
+    R.on('styledata',()=>{ if(!R.getSource('floodA')) { addRaster(); addVec(); updateVec(); if(deckMode==='layer') {colLayer=null; buildCols();} } });
+    waitFor(()=>window.deck, ()=>{ buildCols(); applyMode(); }, 15000, ()=>{ msg('ไม่พบ Deck.gl ใน SDK – ใช้ได้เฉพาะโหมดภาพแบน'); setMode('flat'); });
+    applyMode(); show(0);
+  }, 20000, ()=>msg('แผนที่ยังไม่พร้อม (map.Renderer) – ตรวจ API key'));
+}
+function waitFor(test, ok, ms, fail){ const t0=Date.now(); (function p(){ let r=false; try{r=test()}catch(e){}
+  if(r) ok(); else if(Date.now()-t0>ms) fail&&fail(); else setTimeout(p,150); })(); }
+
+function home(anim=true){ const o={center:[CX,CY],zoom:12.6,pitch:60,bearing:-25}; anim?R.flyTo({...o,duration:1500}):R.jumpTo(o); }
+
+/* ---------- flat raster: two image sources, cross-fade ---------- */
+const corners=[[W,N],[E,N],[E,S],[W,S]];
+function addRaster(){
+  ['A','B'].forEach((k,i)=>{
+    if(R.getSource('flood'+k)) return;
+    R.addSource('flood'+k,{type:'image',url:D.frames[frame],coordinates:corners});
+    R.addLayer({id:'flood'+k,type:'raster',source:'flood'+k,
+      paint:{'raster-opacity':0,'raster-opacity-transition':{duration:500},'raster-fade-duration':0,'raster-resampling':smooth?'linear':'nearest'}});
+  });
+  front='A'; setRasterOpacity();
+}
+function setRasterOpacity(){
+  if(!R||!R.getLayer('floodA')) return;
+  const on = (mode==='flat'||mode==='both') ? opa*(mode==='both'?.7:1) : 0;
+  R.setPaintProperty('flood'+front,'raster-opacity',on);
+  R.setPaintProperty('flood'+(front==='A'?'B':'A'),'raster-opacity',0);
+}
+function rasterTo(i){
+  if(!R||!R.getSource('floodA')) return;
+  const back = front==='A'?'B':'A';
+  R.getSource('flood'+back).updateImage({url:D.frames[i],coordinates:corners});
+  front = back; setRasterOpacity();
+}
+
+/* ---------- 3D columns via Deck.gl ---------- */
+function colProps(){
+  const dep = D.cells.depth[frame];
+  return {
+    id:'flood-cols', type:deck.ColumnLayer,
+    data:{length:NC},
+    diskResolution:4, angle:45, radius:D.cells.cellM*0.5*Math.SQRT2, coverage:0.98,
+    extruded:true, elevationScale:exag, opacity:opa,
+    getPosition:(_, {index})=>[pos[2*index],pos[2*index+1]],
+    getElevation:(_, {index})=>dep[index]>0.05?dep[index]:0,
+    getFillColor:(_, {index})=>col(dep[index]),
+    updateTriggers:{getElevation:frame,getFillColor:frame},
+    transitions:{getElevation:{duration:700},getFillColor:{duration:700}},
+    material:{ambient:.55,diffuse:.6,shininess:24},
+    visible: mode==='cols'||mode==='both',
+    parameters:{depthTest:true}
+  };
+}
+function buildCols(){
+  if(deck.MapboxLayer){                  // deck.gl v8 style (ตามตัวอย่างใน docs Longdo)
+    deckMode='layer';
+    colLayer = new deck.MapboxLayer(colProps());
+    R.addLayer(colLayer);
+  } else if(deck.MapboxOverlay){         // deck.gl v9
+    deckMode='overlay';
+    overlay = new deck.MapboxOverlay({interleaved:true, layers:[]});
+    R.addControl(overlay); updateCols();
+  }
+}
+function updateCols(){
+  if(!window.deck||!deckMode) return;
+  const p = colProps();
+  if(deckMode==='layer' && colLayer){ const {id,type,...rest}=p; colLayer.setProps(rest); }
+  else if(overlay){ const {type,...rest}=p; overlay.setProps({layers:[new deck.ColumnLayer(rest)]}); }
+}
+
+/* ---------- UI ---------- */
+$('time').max = NF-1;
+$('ticks').innerHTML = D.names.map(n=>`<span>${+n}</span>`).join('');
+function show(i){
+  frame=i; $('time').value=i;
+  $('fname').textContent='ขั้นเวลา '+(+D.names[i]);
+  $('wet').textContent=D.stats[i].wetKm2.toFixed(2)+' ตร.กม.';
+  $('mx').textContent=D.stats[i].max.toFixed(2)+' ม.';
+  rasterTo(i); updateCols(); updateVec();
+}
+function step(){ show((frame+1)%NF); }
+function setPlay(p){ playing=p; $('play').textContent=p?'❚❚':'▶'; clearInterval(timer); if(p) timer=setInterval(step,+$('speed').value); }
+$('play').onclick=()=>setPlay(!playing);
+$('speed').oninput=()=>{ if(playing) setPlay(true); };
+$('time').oninput=e=>{ setPlay(false); show(+e.target.value); };
+function setMode(m){ mode=m; document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('on',b.dataset.mode===m)); applyMode(); }
+function applyMode(){ setRasterOpacity(); updateCols(); updateVec(); }
+
+/* ---------- vector depth-band polygons (MapLibre fill-extrusion) ---------- */
+const VCOL=['step',['get','d'],'#9fd6f5',0.15,'#6ebef0',0.3,'#4a9fe0',0.5,'#2f78c8',1,'#1450af',2,'#0a2878'];
+function loadVec(){
+  if(vecLoaded||vecLoading) return; vecLoading=true; msg('กำลังโหลด vector…');
+  // load via <script> so it also works when index.html is opened directly (file://)
+  const loadOne = n => new Promise((ok,no)=>{
+    if(window.FLOOD_VEC && window.FLOOD_VEC[n]) return ok();
+    const s=document.createElement('script'); s.src='hires/flood_'+n+'.js';
+    s.onload=()=> (window.FLOOD_VEC&&window.FLOOD_VEC[n]) ? ok() : no('empty '+n);
+    s.onerror=()=>no('missing hires/flood_'+n+'.js'); document.head.appendChild(s); });
+  let done=0;
+  Promise.all(D.names.map(n=>loadOne(n).then(()=>msg('กำลังโหลด vector… '+(++done)+'/'+D.names.length))))
+  .then(()=>{ window._vec=D.names.map(n=>window.FLOOD_VEC[n]); vecLoaded=true; vecLoading=false; msg(''); addVec(); updateVec(); })
+  .catch(e=>{ vecLoading=false; msg('โหลด vector ไม่ได้: '+e+' – ตรวจว่าโฟลเดอร์ hires/ อยู่ข้างไฟล์ index.html'); console.error(e); });
+}
+function addVec(){
+  if(!vecLoaded||!R) return;
+  D.names.forEach((n,i)=>{
+    if(R.getSource('vec'+i)) return;
+    R.addSource('vec'+i,{type:'geojson',data:window._vec[i],tolerance:0.2});
+    R.addLayer({id:'vec'+i,type:'fill-extrusion',source:'vec'+i,layout:{visibility:'none'},
+      paint:{'fill-extrusion-color':VCOL,'fill-extrusion-opacity':opa,'fill-extrusion-height':0,
+             'fill-extrusion-height-transition':{duration:600},'fill-extrusion-vertical-gradient':true}});
+  });
+}
+let vecShown=-1;
+function updateVec(){
+  if(mode!=='vec'){ if(vecLoaded) D.names.forEach((_,i)=>R.getLayer('vec'+i)&&R.setLayoutProperty('vec'+i,'visibility','none')); vecShown=-1; return; }
+  if(!vecLoaded){ loadVec(); return; }
+  if(!R.getLayer('vec0')) addVec();
+  const h = vecOn ? ['*',['+',['get','d'],['min',['get','h'],3]],exag*0.5] : 0;
+  D.names.forEach((_,i)=>{ const L='vec'+i;
+    R.setLayoutProperty(L,'visibility',i===frame?'visible':'none');
+    R.setPaintProperty(L,'fill-extrusion-opacity',opa);
+    R.setPaintProperty(L,'fill-extrusion-height',h); });
+  vecShown=frame;
+}
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$('exag').oninput=e=>{ exag=+e.target.value; $('exagv').textContent=exag+'×'; updateCols(); };
+$('smooth').onchange=e=>{ smooth=e.target.checked; ['floodA','floodB'].forEach(k=>R&&R.getLayer(k)&&R.setPaintProperty(k,'raster-resampling',smooth?'linear':'nearest')); };
+$('vex').onchange=e=>{ vecOn=e.target.checked; updateVec(); };
+$('opa').oninput=e=>{ opa=e.target.value/100; applyMode(); };
+$('home').onclick=()=>R&&home();
+$('rot').onclick=()=>{ rotating=!rotating; $('rot').classList.toggle('on',rotating); if(rotating) spin(); };
+function spin(){ if(!rotating||!R) return; R.rotateTo(R.getBearing()+40,{duration:4000,easing:t=>t}); R.once('moveend',()=>rotating&&spin()); }
+document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT'&&e.target.type!=='range') return;
+  if(e.code==='Space'){e.preventDefault();setPlay(!playing);} if(e.key==='ArrowRight'){setPlay(false);step();} if(e.key==='ArrowLeft'){setPlay(false);show((frame-1+NF)%NF);} });
+})();
+</script>
+</body>
+</html>
